@@ -1,0 +1,162 @@
+---
+title: "Water salinity"
+author: "Constance Delannoy"
+date: "April 5, 2018"
+output: html_document
+---
+<!-- # Purpose: training on logistic regression using CalCOFI dataset and prompt from kagle -->
+<!-- # Author: Constance -->
+<!-- # Date started: 4/17/2018 -->
+
+Dataset: CalCOFI; Over 60 years of oceanographic data
+Questions: Is there a relationship between water salinity & water temperature? Can you predict the water temperature based on salinity?
+Method: Linear regression
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Functions and libraries
+source("calcofi_funs.R")
+
+# directories
+calcofi_dir <- "C:/Users/cdelannoy/Documents/Projects/courses/bayes/kaggle/lm_calcofi/"
+input_dir <- file.path(calcofi_dir, "input")
+output_dir <- file.path(calcofi_dir, "output")
+```
+
+```{r loading data and preliminary processing}
+calcofi_raw <- read_csv(file.path(input_dir, "bottle.csv"))
+
+# Getting rid of "quality code" and "precision" variables, irrelevant variables (and replicate variables??) to only keep actual measures
+calcofi_df <- calcofi_raw %>% 
+  select(-ends_with("Aq"),
+         -ends_with("1q"),
+         -ends_with("2q"),
+         -ends_with("3q"),
+         -ends_with("4q"),
+         -ends_with("Ap"),
+         -ends_with("1p"),
+         -ends_with("2p"),
+         -ends_with("3p"),
+         -ends_with("4p"),
+         -ends_with("qual"),
+         -ends_with("prec"),
+         -ends_with("tq"),
+         -ends_with("qua")
+         -`DIC Quality Comment`,
+         -R_SAMP,
+         -Cst_Cnt,
+         -Btl_Cnt,
+         -Depth_ID,
+         -Sta_ID,
+         -starts_with("DIC"),
+         -starts_with("TA"),
+         -starts_with("MeanA"),
+         -starts_with("C14A"),
+         -R_SALINITY
+         ) %>% 
+ mutate_if(is.character, as.numeric)
+
+```
+# Exploration {.tabset}
+
+## Outcome variable
+
+The outcome variable (temperature in degress Celsius) looks reasonably normal, so we do not feel the need to transform it.
+
+```{r exploration}
+outcome_plot <- ggplot(calcofi_raw, aes(T_degC)) +
+  geom_histogram() +
+  ggtitle("distribution of outcome variable (temperature in C)")
+outcome_plot
+
+```
+
+```{r}
+outcome_na <- sum(is.na(calcofi_df$T_degC))
+calcofi_nona <- calcofi_raw %>% 
+  filter(!is.na(T_degC))
+```
+
+The number of NA values in the outcome variable is `outcome_na`. We filter the dataset to only keep rows without NAs.
+
+We now turn to the independent variables.
+
+## Independent variables
+
+The two main variables of interest seems decently normal as well, although it has outliers in both directions.
+```{r}
+main_dep_plot <- ggplot(calcofi_nona, aes(Salnty)) +
+  geom_histogram() +
+  ggtitle("distribution of main dependent variable of interest (salinity of water)")
+main_dep_plot
+```
+
+
+```{r}
+whisker_salnty <- ggplot(calcofi_nona, aes(x = "", y = Salnty)) +
+  geom_boxplot()           
+
+whisker_salnty
+```
+
+We look at the second measure of salinity, which is highly skewed. Because of this, we prefer to use the first measure of salinity as outcome variable, and drop the variable below from our dataset. In addition, R_SALINITY has a lot of NAs, which further comforts us in our decision to use Salnty as independent variable.
+
+```{r}
+main_dep_plot2 <- ggplot(calcofi_nona, aes(R_SALINITY)) +
+  geom_histogram() +
+  ggtitle("distribution of main dependent variable of interest (reported salinity)")
+main_dep_plot2
+```
+
+Before removing the variable from our data, we confirm that the two variables are correlated (which they are).
+
+```{r}
+salnty_nona <- calcofi_nona %>% 
+  filter(!is.na(R_SALINITY))
+cor(salnty_nona$R_SALINITY, salnty_nona$Salnty)
+```
+
+
+We remove variables related to replication bottles because they are highly correlated with one another and because there are very few non-NA values.
+```{r correlations for replicate variables}
+correlated_candidates <- calcofi_raw %>% 
+  select(starts_with("DIC"),
+         starts_with("TA"),
+         starts_with("MeanA"),
+         starts_with("C14A")) %>% 
+  mutate_all(as.numeric) %>% 
+  na.omit()
+  
+corrplot(cor(correlated_candidates))
+```
+
+
+As a next step, we check the amount of NAs in all of our columns. Some of them have more than 50% NA values (note we have already filtered out NA rows on our outcome variable). We remove these variables from our dataset.
+
+```{r NA check}
+na_table <- calcofi_df %>% 
+  summarise_all(funs(sum(is.na(.))/n())) %>% 
+  gather(variable, sum_na) %>% 
+  filter(sum_na > 0.5)
+
+cols_to_remove <- na_table$variable
+
+na_table
+```
+
+```{r calcofi df ready for analysis}
+calcofi_reg <- calcofi_df[, colnames(calcofi_df[,!colnames(calcofi_df) %in% cols_to_remove])] %>% 
+  na.omit()
+```
+
+Removing all NAs in the remaining rows leaves us with `r nrow(calcofi_reg)` rows out of `r nrow(calcofi_raw)`, or `r nrow(calcofi_reg)/nrow(calcofi_raw)` %.
+
+Finally, we check the correlations of other variables in our dataset.
+
+```{r total corr check}
+corrplot(cor(calcofi_reg), 
+         type = "upper", 
+         diag = TRUE)
+```
+

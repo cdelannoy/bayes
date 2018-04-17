@@ -1,3 +1,6 @@
 # ignore folder with datasets
 
-kagle/
+kaggle/
+
+.Rhistory
+.Rproj.user/
