@@ -1,0 +1,290 @@
+---
+title: "Regression exercise: Water salinity"
+author: "Constance Delannoy"
+date: "April 19, 2018"
+output: html_document
+---
+<!-- # Purpose: training on logistic regression using CalCOFI dataset and prompt from kagle -->
+<!-- # Author: Constance -->
+<!-- # Date started: 4/17/2018 -->
+
+Dataset: CalCOFI; Over 60 years of oceanographic data
+
+Questions: Is there a relationship between water salinity & water temperature? Can you predict the water temperature based on salinity?
+
+Method: Linear regression
+
+Findings: Temperature is not a good predictor of salinity except when paired with Depth and O2 concentration.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, cache = TRUE)
+
+# Libraries
+library(tidyverse)
+library(ggplot2)
+library(corrplot)
+library(gridExtra)
+library(stargazer)
+
+# directories
+calcofi_dir <- "C:/Users/cdelannoy/Documents/Projects/courses/bayes/kaggle/lm_calcofi/"
+input_dir <- file.path(calcofi_dir, "input")
+output_dir <- file.path(calcofi_dir, "output")
+```
+
+```{r loading data and preliminary processing}
+calcofi_raw <- read_csv(file.path(input_dir, "bottle.csv"))
+
+# Getting rid of "quality code" and "precision" variables, irrelevant variables (and replicate variables??) to only keep actual measures
+calcofi_df <- calcofi_raw %>% 
+  select(-ends_with("Aq"),
+         -ends_with("1q"),
+         -ends_with("2q"),
+         -ends_with("3q"),
+         -ends_with("4q"),
+         -ends_with("Ap"),
+         -ends_with("1p"),
+         -ends_with("2p"),
+         -ends_with("3p"),
+         -ends_with("4p"),
+         -ends_with("qual"),
+         -ends_with("prec"),
+         -ends_with("tq"),
+         -ends_with("qua"),
+         -ends_with("qu"),
+         -`DIC Quality Comment`,
+         -R_SAMP,
+         -Cst_Cnt,
+         -Btl_Cnt,
+         -Depth_ID,
+         -Sta_ID,
+         -starts_with("DIC"),
+         -starts_with("TA"),
+         -starts_with("MeanA"),
+         -starts_with("C14A"),
+         -R_SALINITY
+         ) %>% 
+ mutate_if(is.character, as.numeric)
+
+```
+# {.tabset}
+
+## Exploration and data cleaning
+
+
+__*Outcome variable*__
+
+The outcome variable (temperature in degress Celsius) looks reasonably normal, so we do not feel the need to transform it.
+
+```{r exploration}
+outcome_plot <- ggplot(calcofi_raw, aes(T_degC)) +
+  geom_histogram() +
+  ggtitle("distribution of outcome variable (temperature in C)")
+outcome_plot
+
+```
+
+```{r}
+outcome_na <- sum(is.na(calcofi_df$T_degC))
+calcofi_nona <- calcofi_raw %>% 
+  filter(!is.na(T_degC))
+```
+
+The number of NA values in the outcome variable is `r outcome_na`. We filter the dataset to only keep rows without NAs.
+
+We now turn to the independent variables.
+
+__*Independent variables*__
+
+The two main variables of interest seems decently normal as well, although it has outliers in both directions.
+```{r}
+main_dep_plot <- ggplot(calcofi_nona, aes(Salnty)) +
+  geom_histogram() +
+  ggtitle("distribution of main dependent variable of interest (salinity of water)")
+main_dep_plot
+```
+
+
+```{r}
+whisker_salnty <- ggplot(calcofi_nona, aes(x = "", y = Salnty)) +
+  geom_boxplot()           
+
+whisker_salnty
+```
+
+We look at the second measure of salinity, which is highly skewed. Because of this, we prefer to use the first measure of salinity as outcome variable, and drop the variable below from our dataset. In addition, R_SALINITY has a lot of NAs, which further comforts us in our decision to use Salnty as independent variable.
+
+```{r}
+main_dep_plot2 <- ggplot(calcofi_nona, aes(R_SALINITY)) +
+  geom_histogram() +
+  ggtitle("distribution of main dependent variable of interest (reported salinity)")
+main_dep_plot2
+```
+
+Before removing the variable from our data, we confirm that the two variables are correlated (which they are).
+
+```{r}
+salnty_nona <- calcofi_nona %>% 
+  filter(!is.na(R_SALINITY))
+cat("The correlation between R_SALINITY and Salnty is", round(cor(salnty_nona$R_SALINITY, salnty_nona$Salnty), 4))
+```
+
+
+We remove variables related to replication bottles because they are highly correlated with one another and because there are very few non-NA values.
+```{r correlations for replicate variables}
+correlated_candidates <- calcofi_raw %>% 
+  select(starts_with("DIC"),
+         starts_with("TA"),
+         starts_with("MeanA"),
+         starts_with("C14A")) %>% 
+  na.omit() %>% 
+  mutate_all(as.numeric)
+
+#corrplot(cor(correlated_candidates))
+```
+
+
+As a next step, we check the amount of NAs in all of our columns. Some of them have more than 50% NA values (note we have already filtered out NA rows on our outcome variable). We remove these variables from our dataset.
+
+```{r NA check, results="asis"}
+na_table <- calcofi_df %>% 
+  summarise_all(funs(sum(is.na(.))/n())) %>% 
+  gather(variable, sum_na) %>% 
+  filter(sum_na > 0.5)
+
+cols_to_remove <- na_table$variable
+
+stargazer(na_table,
+          type = "html",
+          summary = FALSE)
+```
+
+```{r calcofi df ready for analysis}
+calcofi_corrtrim <- calcofi_df[, colnames(calcofi_df[,!colnames(calcofi_df) %in% cols_to_remove])] %>% 
+  na.omit()
+```
+
+Finally, we check the correlations of other variables in our dataset.
+We remove the following variables:
+
+* R_TEMP because it is measuring the same thing as T_degC
+* R_Depth because it is measuring the same thing as Depthm
+* R_O2, and R_PRES because they are both highly correlated with Depthm
+* R_POTEMP, R_SIGMA, R_SVA, DYNHT because they are highly correlated with T_degC
+* STheta, Oxy_umol/kg, Reclnd R_O2, R_O2Sat and O2Sat because they are highly correlated ith O2ml_L
+
+```{r total corr check}
+corrplot(cor(calcofi_corrtrim), 
+         type = "upper", 
+         diag = TRUE)
+
+calcofi_reg <- calcofi_df[, colnames(calcofi_df[,!colnames(calcofi_df) %in% cols_to_remove])] %>%  
+  select(-R_TEMP,
+         -R_Depth,
+         -R_O2,
+         -R_PRES,
+         -R_POTEMP,
+         -R_SIGMA,
+         -R_SVA,
+         -R_DYNHT,
+         -STheta,
+        # -`Oxy_µmol/Kg`,
+         -RecInd,
+         -R_O2,
+         -R_O2Sat,
+         -O2Sat) 
+
+calcofi_reg <- calcofi_reg[, -5] %>% # removing `Oxy_µmol/Kg` column
+  na.omit()
+
+stopifnot(!("Oxy" %in% colnames(calcofi_reg)))
+
+```
+
+The resulting dataset has 4 columns and `r nrow(calcofi_reg)`.
+
+Removing all NAs in the remaining rows leaves us with `r nrow(calcofi_reg)` rows out of `r nrow(calcofi_raw)`, or `r round(nrow(calcofi_reg)/nrow(calcofi_raw), 2)` %.
+
+```{r}
+corrplot(cor(calcofi_reg), 
+         type = "upper", 
+         diag = TRUE)
+
+```
+
+
+## Model
+
+
+
+```{r model fitting, results="asis"}
+calcofi_lm <- lm(Salnty ~ ., dat = calcofi_reg)
+
+calcofi_log <- calcofi_reg %>% 
+  bind_cols(data.frame("log_Depthm" = log(calcofi_reg$Depthm))) %>% 
+  filter(!is.infinite(log_Depthm))
+  
+calcofi_lm_log <- lm(Salnty ~ ., dat = calcofi_log)
+calcofi_lm_temp <- lm(Salnty ~ T_degC, dat = calcofi_reg)
+
+stargazer(calcofi_lm,
+          calcofi_lm_log,
+          calcofi_lm_temp,
+          type = "html",
+          column.labels = c("Standard lm", "lm with log(depth)", "lm with T_degC only"))
+```
+
+```{r residuals}
+res_plot <- ggplot(NULL, aes(x = calcofi_lm$fitted.values, y = calcofi_lm$residuals)) +
+  geom_point() +
+  geom_smooth(method = lm,
+              se = FALSE) +
+  ggtitle("Residuals vs Fitted values for standard regression")
+
+res_plot
+```
+The residuals are somewhat normal, but there seems to be some negative trend.
+
+To further investigate, we plot the outcome variable on each dependent variable.
+
+It seems that salinity values are concentrated for one measure of Depth. In a separate model, we take the log of this variable to try to smooth out its distribution.
+
+```{r plots}
+dep <- ggplot(data = NULL, aes(y = calcofi_reg$Salnty, x = calcofi_reg$Depthm))+
+  geom_point()
+temp <- ggplot(data = NULL, aes(y = calcofi_reg$Salnty, x = calcofi_reg$T_degC))+
+  geom_point()
+o2 <- ggplot(data = NULL, aes(y = calcofi_reg$Salnty, x = calcofi_reg$O2ml_L))+
+  geom_point()
+
+grid.arrange(dep, temp, o2, ncol = 2)
+```
+
+
+```{r residuals log}
+res_log_plot <- ggplot(NULL, aes(x = calcofi_lm_log$fitted.values, y = calcofi_lm_log$residuals)) +
+  geom_point() +
+  geom_smooth(method = lm,
+              se = FALSE) +
+  ggtitle("Residuals vs Fitted values for standard regression")
+
+res_log_plot
+```
+
+
+```{r plot log}
+dep_log <- ggplot(data = NULL, aes(y = calcofi_log$Salnty, x = calcofi_log$log_Depthm))+
+  geom_point()
+dep_log
+```
+
+
+```{r residuals temp}
+res_temp_plot <- ggplot(NULL, aes(x = calcofi_lm_temp$fitted.values, y = calcofi_lm_temp$residuals)) +
+  geom_point() +
+  geom_smooth(method = lm,
+              se = FALSE) +
+  ggtitle("Residuals vs Fitted values for regression on temperature only")
+
+res_temp_plot
+```
