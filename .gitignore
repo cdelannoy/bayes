@@ -4,3 +4,8 @@ kaggle/
 
 .Rhistory
 .Rproj.user/
+
+# ignore output
+*.html
+*_cache/
+*_files/
