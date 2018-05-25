@@ -138,7 +138,8 @@ main_dep_plot2 <- ggplot(calcofi_nona, aes(R_SALINITY)) +
 main_dep_plot2
 ```
 
-Before removing the variable from our data, we confirm that the two variables are correlated (which they are). This means we will need to run two separate models to decide which one is a better predictor than the other.
+Before removing the variable from our data, we confirm that the two variables are correlated (which they are). 
+Because the correlation between the two variables is 1, we only keep one of them, Salnty.
 
 ```{r}
 salnty_nona <- calcofi_nona %>% 
@@ -146,8 +147,6 @@ salnty_nona <- calcofi_nona %>%
 cat("The correlation between R_SALINITY and Salnty is", round(cor(salnty_nona$R_SALINITY, salnty_nona$Salnty), 4))
 ```
 
-
-Because the correlation between the two variables is 1, we only keep one of them, Salnty.
 
 We remove variables related to replication bottles because they are highly correlated with one another and because there are very few non-NA values.
 ```{r correlations for replicate variables}
@@ -224,9 +223,9 @@ stopifnot(!("Oxy" %in% colnames(calcofi_reg)))
 ```
 
 
-The resulting dataset has 4 columns and `r nrow(calcofi_reg)`.
+The resulting dataset has 4 columns and `r nrow(calcofi_reg)` rows.
 
-Removing all NAs in the remaining rows leaves us with `r nrow(calcofi_reg)` rows out of `r nrow(calcofi_raw)`, or `r round(nrow(calcofi_reg)/nrow(calcofi_raw), 2)` %.
+Removing all NAs in the remaining rows leaves us with `r nrow(calcofi_reg)` rows out of `r nrow(calcofi_raw)`, or `r round(nrow(calcofi_reg)/nrow(calcofi_raw), 2)` % of the data.
 
 ```{r}
 corrplot(cor(calcofi_reg), 
@@ -236,8 +235,9 @@ corrplot(cor(calcofi_reg),
 ```
 
 
-## Model {.tabset}
+## Modeling {.tabset}
 
+*Note: I could not get a summary of the gam model with splines on each interaction term...
 
 ```{r model fitting, results="asis"}
 calcofi_lm_Salnty <- lm(T_degC ~ ., dat = calcofi_reg)
@@ -250,21 +250,70 @@ calcofi_log <- calcofi_reg %>%
 calcofi_lm_log <- lm(T_degC ~ ., dat = calcofi_log)
 calcofi_lm_temp <- lm(T_degC ~ Salnty, dat = calcofi_reg)
 
-interaction_model <- lm(T_degC ~ log_Depthm + O2ml_L + Salnty + log_Depthm*Salnty, dat = calcofi_log)
+interaction_model <- lm(T_degC ~ log_Depthm + O2ml_L + Salnty + log_Depthm*Salnty + O2ml_L*Salnty + O2ml_L*log_Depthm + log_Depthm*Salnty*O2ml_L, dat = calcofi_log)
 
 gam_lm <- gam(T_degC ~ s(Depthm) + O2ml_L + Salnty, data = calcofi_reg)
 
-stargazer(calcofi_lm_Salnty,
+gam_lm_int <- gam(T_degC ~ s(Depthm) + O2ml_L + Salnty + s(Depthm,Salnty) + O2ml_L*Salnty + s(Depthm,O2ml_L) + s(Depthm,Salnty,O2ml_L), data = calcofi_reg)
+
+stargazer(calcofi_lm_temp,
+          calcofi_lm_Salnty,
           calcofi_lm_log,
           interaction_model,
-          calcofi_lm_temp,
           gam_lm,
           type = "html",
-          column.labels = c("Standard lm", "lm with log(depth)", "lm with Salnty only", "lm with gam on Depthm"),
-          column.separate = c(1, 2, 1, 1))
+          column.labels = c("lm with Salnty only", "Standard lm", "lm with log(depth)", "lm with s(Depthm)"),
+          column.separate = c(1, 1, 2, 1))
 ```
 
+
+### Model with salinity only
+
+There is clearly a trend that our model is not catching here.
+
+```{r residuals temp}
+res_temp_plot <- ggplot(NULL, aes(x = calcofi_lm_temp$fitted.values, y = calcofi_lm_temp$residuals)) +
+  geom_point() +
+  geom_smooth(method = lm,
+              se = FALSE) +
+  ggtitle("Residuals vs Fitted values for regression on salinity only") +
+  xlab("fitted values") +
+  ylab("residuals")
+
+res_temp_plot
+```
+
+Our model does not seem very accurate, based on the plot below.
+
+```{r residuals vs x for 1-pred model}
+res_vs_y_plot_salinity <- ggplot(NULL, aes(x = calcofi_lm_temp$fitted.values, y = calcofi_reg$T_degC)) +
+  geom_point() +
+  geom_smooth(method = lm,
+              se = FALSE) +
+  ggtitle("Observed vs predicted values for salinity-only model") +
+  xlab("predicted values (Temperature in Celsius)") +
+  ylab("observed values (Temperature in Celsius)")
+
+res_vs_y_plot_salinity
+```
+
+The residuals are slightly right-skewed.
+
+```{r errors salinity only}
+ggplot(data = NULL, aes(x = calcofi_lm_temp$residuals)) +
+  geom_histogram(aes(y = ..density..), 
+                 color = "blue") +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  xlab("residuals") +
+  ylab("density") +
+  ggtitle("Distribution of residuals")
+
+```
+
+
 ### Standard model with Salnty
+
+There seems to be a trend in the residuals, jusging by the two diagonal lines spanning the scatter plot below.
 
 ```{r residuals vs fitted}
 res_plot <- ggplot(NULL, aes(x = calcofi_lm_Salnty$fitted.values, y = calcofi_lm_Salnty$residuals)) +
@@ -277,8 +326,9 @@ res_plot <- ggplot(NULL, aes(x = calcofi_lm_Salnty$fitted.values, y = calcofi_lm
 
 res_plot
 ```
-There seems to be a trend in the residuals, jusging by the two diagonal lines spanning the scatter plots.
 
+
+This plot shows potential heteroscedasticity issues, as lower values of Temperatures have a smaller variance than high ones.
 
 ```{r residuals vs x}
 res_vs_y_plot <- ggplot(NULL, aes(x = calcofi_lm_Salnty$fitted.values, y = calcofi_reg$T_degC)) +
@@ -294,7 +344,9 @@ res_vs_y_plot
 
 To further investigate, we plot the outcome variable on each dependent variable.
 
-It seems that salinity values are concentrated for one measure of Depth. In a separate model, we take the log of this variable to try to smooth out its distribution. In addition, we use the gmcv package to transform this variable.
+It seems that salinity values are not a linear function of Depth. In a separate model, we take the log of this variable to try to smooth out its distribution. In a separate model, we use the gmcv package to transform this variable.
+
+In addition, the salinity variable shows much heteroscedasticity, as small values of salinity have around a 10 degree difference in temperature, while high values of salinity have around 30 degrees of difference in temperature.
 
 ```{r plots round 3}
 dep <- ggplot(data = NULL, aes(y = calcofi_reg$T_degC, x = calcofi_reg$Depthm))+
@@ -314,6 +366,9 @@ o2 <- ggplot(data = NULL, aes(y = calcofi_reg$T_degC, x = calcofi_reg$O2ml_L))+
 
 grid.arrange(dep, temp, o2, ncol = 2)
 ```
+
+The residuals follow a standard normal distribution.
+
 ```{r errors standard}
 ggplot(data = NULL, aes(x = calcofi_lm_Salnty$residuals)) +
   geom_histogram(aes(y = ..density..), 
@@ -327,15 +382,21 @@ ggplot(data = NULL, aes(x = calcofi_lm_Salnty$residuals)) +
 
 ### Model with log(Depth)
 
+The residuals of this model are the most randomly scattered so far.
+
 ```{r residuals log}
 res_log_plot <- ggplot(NULL, aes(x = calcofi_lm_log$fitted.values, y = calcofi_lm_log$residuals)) +
   geom_point() +
   geom_smooth(method = lm,
               se = FALSE) +
-  ggtitle("Residuals vs Fitted values for model with log(Depth)")
+  ggtitle("Residuals vs Fitted values for model with log(Depth)") +
+  xlab("fitted values") +
+  ylab("residuals")
 
 res_log_plot
 ```
+
+This graph still shows a heterscedasticity problem, although less pronounced than when Depth is not logged.
 
 ```{r residuals vs x for log model}
 ggplot(NULL, aes(x = calcofi_lm_log$fitted.values, y = calcofi_log$T_degC)) +
@@ -348,6 +409,8 @@ ggplot(NULL, aes(x = calcofi_lm_log$fitted.values, y = calcofi_log$T_degC)) +
 
 ```
 
+The graph below confirms our variance issue is still there, as high values of log(Depth) have much lower variance than low ones.
+
 ```{r plot log}
 ggplot(data = NULL, aes(y = calcofi_log$T_degC, x = calcofi_log$log_Depthm))+
   geom_point() +
@@ -356,6 +419,8 @@ ggplot(data = NULL, aes(y = calcofi_log$T_degC, x = calcofi_log$log_Depthm))+
   ggtitle("Distribution of Temperature vs log(Depth")
 
 ```
+
+The errors have a standard normal distribution.
 
 ```{r errors log Depthm}
 ggplot(data = NULL, aes(x = calcofi_lm_log$residuals)) +
@@ -392,15 +457,19 @@ grid.arrange(dep_sal, dep_o2, ncol = 2)
 
 ```
 
-We now use a plot to understand the effect of the interaction log(Depth)*Salnty on the model. Based on this plot, it does not seem like the interaction makes much difference in the predictions.
+We now use a plot to understand the effect of the interaction terms between log(Depth), Salnty and O2ml_L on the model. Based on this plot, it seems like interaction term would be useful in making more precise predictions.
 
 ```{r interactive interaction}
-interact_plot(interaction_model, pred = "Salnty", modx = "log_Depthm") +
-  ggtitle("Plot of outcome vs Salnty based on value of log_Depthm")
+interact_plot1 <- interact_plot(interaction_model, pred = "Salnty", modx = "log_Depthm", interval = TRUE, int.width = 0.2) +
+  ggtitle("Plot of outcome vs Salnty \n based on value of log_Depthm")
 
+interact_plot2 <- interact_plot(interaction_model, pred = "O2ml_L", modx = "log_Depthm", interval = TRUE) +
+  ggtitle("Plot of outcome vs O2ml_L \n based on value of log_Depthm")
+
+grid.arrange(interact_plot1, interact_plot2, ncol = 2)
 ```
 
-We now check the distribution of errors. 
+We now check the distribution of errors, which looks normal. 
 
 ```{r errors interaction model}
 ggplot(data = NULL, aes(x = interaction_model$residuals)) +
@@ -414,45 +483,12 @@ ggplot(data = NULL, aes(x = interaction_model$residuals)) +
 ```
 
 
-### Model with salinity only
-
-```{r residuals temp}
-res_temp_plot <- ggplot(NULL, aes(x = calcofi_lm_temp$fitted.values, y = calcofi_lm_temp$residuals)) +
-  geom_point() +
-  geom_smooth(method = lm,
-              se = FALSE) +
-  ggtitle("Residuals vs Fitted values for regression on salinity only")
-
-res_temp_plot
-```
-
-```{r residuals vs x for 1-pred model}
-res_vs_y_plot_salinity <- ggplot(NULL, aes(x = calcofi_lm_temp$fitted.values, y = calcofi_reg$T_degC)) +
-  geom_point() +
-  geom_smooth(method = lm,
-              se = FALSE) +
-  ggtitle("Observed vs predicted values for salinity-only model") +
-  xlab("predicted values (Temperature in Celsius)") +
-  ylab("observed values (Temperature in Celsius)")
-
-res_vs_y_plot_salinity
-```
-
-```{r errors salinity only}
-ggplot(data = NULL, aes(x = calcofi_lm_temp$residuals)) +
-  geom_histogram(aes(y = ..density..), 
-                 color = "blue") +
-  geom_density(alpha = 0.2, fill = "#FF6666") +
-  xlab("residuals") +
-  ylab("density") +
-  ggtitle("Distribution of residuals")
-
-```
-
 ### Model with GAM
 
-CONFIRM WITH MARIEL ABOUT HOW TO USE GAM AND CHECK X VARiABLE FOR SALINITY
-https://people.maths.bris.ac.uk/~sw15190/mgcv/tampere/mgcv.pdf 
+The following resource was helpful in understanding GAM: https://people.maths.bris.ac.uk/~sw15190/mgcv/tampere/mgcv.pdf 
+
+based on the scatter plot below, it still seems that there is an effect we are not quite capturing, based on the negative diagonal trend lines we can make out.
+
 ```{r residuals vs fitted gam}
 ggplot(NULL, aes(x = gam_lm$fitted.values, y = gam_lm$residuals)) +
   geom_point() +
@@ -463,8 +499,8 @@ ggplot(NULL, aes(x = gam_lm$fitted.values, y = gam_lm$residuals)) +
   ylab("residuals")
 
 ```
-There seems to be a trend in the residuals, jusging by the two diagonal lines spanning the scatter plots.
 
+This plot shows that GAM did a good job addressing the heteroscedasticity issue we have been having. This plot looks the best so far, with an almost even distribution of variance for any predicted values.
 
 ```{r residuals vs x gam}
 ggplot(NULL, aes(x = gam_lm$fitted.values, y = calcofi_reg$T_degC)) +
@@ -477,28 +513,26 @@ ggplot(NULL, aes(x = gam_lm$fitted.values, y = calcofi_reg$T_degC)) +
 
 ```
 
-To further investigate, we plot the outcome variable on each dependent variable.
+<!-- ```{r plots round 3 gam} -->
+<!-- # dep <- ggplot(data = NULL, aes(y = calcofi_reg$T_degC, x = calcofi_reg$Depthm))+ -->
+<!-- #   geom_point() + -->
+<!-- #   xlab("Depth (meters)") + -->
+<!-- #   ylab("Temperature (Celsius)") -->
+<!-- #  -->
+<!-- # temp <- ggplot(data = NULL, aes(y = calcofi_reg$T_degC, x = calcofi_reg$Salnty))+ -->
+<!-- #   geom_point() + -->
+<!-- #   xlab("Salinity (standard scale)") + -->
+<!-- #   ylab("Temperature (Celsius)") -->
+<!-- #  -->
+<!-- # o2 <- ggplot(data = NULL, aes(y = calcofi_reg$T_degC, x = calcofi_reg$O2ml_L))+ -->
+<!-- #   geom_point()+ -->
+<!-- #   xlab("O2 concentration (ml/L)") + -->
+<!-- #   ylab("Temperature (Celsius)") -->
+<!-- #  -->
+<!-- # grid.arrange(dep, temp, o2, ncol = 2) -->
+<!-- ``` -->
 
-It seems that salinity values are concentrated for one measure of Depth. In a separate model, we take the log of this variable to try to smooth out its distribution. In addition, we use the gmcv package to transform this variable.
-
-```{r plots round 3 gam}
-dep <- ggplot(data = NULL, aes(y = calcofi_reg$T_degC, x = calcofi_reg$Depthm))+
-  geom_point() +
-  xlab("Depth (meters)") +
-  ylab("Temperature (Celsius)")
-
-temp <- ggplot(data = NULL, aes(y = calcofi_reg$T_degC, x = calcofi_reg$Salnty))+
-  geom_point() +
-  xlab("Salinity (standard scale)") +
-  ylab("Temperature (Celsius)")
-
-o2 <- ggplot(data = NULL, aes(y = calcofi_reg$T_degC, x = calcofi_reg$O2ml_L))+
-  geom_point()+
-  xlab("O2 concentration (ml/L)") +
-  ylab("Temperature (Celsius)")
-
-grid.arrange(dep, temp, o2, ncol = 2)
-```
+The residual plot below shows a normal distribution of errors. 
 
 ```{r errors gam}
 ggplot(data = NULL, aes(x = gam_lm$residuals)) +
@@ -509,4 +543,175 @@ ggplot(data = NULL, aes(x = gam_lm$residuals)) +
   ylab("count") +
   ggtitle("Distribution of residuals")
 
+```
+
+```{r GAM splines, warning = FALSE}
+par(mfrow=c(1,3))
+splines_3d <- vis.gam(gam_lm, ticktype = "detailed", se = 2, theta= -40)
+splines_3d2 <- vis.gam(gam_lm, theta= 40)
+splines_3d3 <- vis.gam(gam_lm, plot.type = "contour")
+```
+
+```{r more GAM plots}
+salnty_plot <- ggplot(data = calcofi_reg, aes(x = Salnty)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = predict(gam_lm)), color = "lightblue", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Salnty")
+
+depthm_plot <- ggplot(data = calcofi_reg, aes(x = Depthm)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = predict(gam_lm)), color = "lightpink", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Depth")
+
+o2_plot <- ggplot(data = calcofi_reg, aes(x = O2ml_L)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = predict(gam_lm)), color = "lightgreen", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Depth")
+
+grid.arrange(salnty_plot, depthm_plot, o2_plot, ncol = 3)
+```
+
+```{r more GAM}
+par(mfrow=c(1,2))
+splines <- plot(gam_lm, pers = TRUE)
+plot(gam_lm, residuals = TRUE, pch = 19, main = "residual plot for spline term (Depth)")
+```
+
+#### Looking at some of the pre-defined summary plots from mgcv package and additional deviance plots
+```{r}
+par(mfrow=c(2,3))
+gam.check(gam_lm)
+plot(fitted(gam_lm), residuals(gam_lm), main = "fitted values vs residuals")
+plot(calcofi_reg$T_degC, residuals(gam_lm), main = "observed values for Temperature vs residuals")
+```
+
+
+### Model with GAM and interaction terms
+
+We start with some summary statistics for the model.
+
+```{r echo = TRUE}
+# sse <- sum(gam_lm_int$fitted.values - gam_lm_int$y)^2
+# ssr <- sum(gam_lm_int$fitted.values - mean(gam_lm_int$y))^2 
+# sst <- sse + ssr
+# 
+# r_2 <- 1 - sse/sst
+# adj_r_2 <- 1 - sse*length(gam_lm_int$y - 1)/(sst*(length(gam_lm_int$y) - length(gam_lm_int$coefficients)))
+# 
+# knitr::kable(gam_lm_int$coefficients, col.names = c("Coefficient"))
+summary(gam_lm_int)
+```
+
+Let's compare both GAM models on AIC.
+
+```{r}
+AIC(gam_lm, gam_lm_int)
+```
+
+
+<!-- |metric|value|formula| -->
+<!-- |:----:|:---:|:-----:| -->
+<!-- |sse   |`r sse`|`sum(gam_lm_int$fitted.values - gam_lm_int$y)^2`| -->
+<!-- |ssr   |`r ssr`|`sum(gam_lm_int$fitted.values - mean(gam_lm_int$y))^2`| -->
+<!-- |sst   |`r sst`|`sse + ssr`| -->
+<!-- |R2    |`r r_2`|`1 - sse/sst`| -->
+<!-- |adj R2|`r adj_r_2`|`1 - sse*length(gam_lm_int$y - 1)/(sst*(length(gam_lm_int$y) - length(gam_lm_int$coefficients)))`| -->
+
+We now plot the residuals for this model.
+
+```{r errors gam with interactions}
+ggplot(data = NULL, aes(x = gam_lm_int$residuals)) +
+  geom_histogram(aes(y = ..density..), 
+                 color = "blue") +
+  geom_density(alpha = 0.2, fill = "#FF6666") +
+  xlab("residuals") +
+  ylab("count") +
+  ggtitle("Distribution of residuals")
+
+```
+
+
+```{r GAM splines 2, warning = FALSE}
+par(mfrow=c(1,3))
+splines_3d <- vis.gam(gam_lm_int, ticktype = "detailed", se = 2, theta= -40)
+splines_3d2 <- vis.gam(gam_lm_int, theta= 40)
+splines_3d3 <- vis.gam(gam_lm_int, plot.type = "contour")
+```
+
+```{r more GAM plots 2}
+salnty_plot <- ggplot(data = calcofi_reg, aes(x = Salnty)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = predict(gam_lm_int)), color = "lightblue", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Salnty")
+
+depthm_plot <- ggplot(data = calcofi_reg, aes(x = Depthm)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = predict(gam_lm_int)), color = "lightpink", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Depth")
+
+o2_plot <- ggplot(data = calcofi_reg, aes(x = O2ml_L)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = predict(gam_lm_int)), color = "lightgreen", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Depth")
+
+grid.arrange(salnty_plot, depthm_plot, o2_plot, ncol = 3)
+```
+
+```{r more GAM 2}
+par(mfrow=c(1,2))
+splines <- plot(gam_lm_int, pers = TRUE)
+plot(gam_lm_int, residuals = TRUE, pch = 19, main = "residual plot for spline term (Depth)")
+```
+
+
+```{r summary plots GAM 2}
+par(mfrow=c(2,3))
+gam.check(gam_lm_int)
+plot(fitted(gam_lm_int), residuals(gam_lm_int), main = "fitted values vs residuals")
+plot(calcofi_reg$T_degC, residuals(gam_lm_int), main = "observed values for Temperature vs residuals")
+```
+
+Now let's pot some interactions!
+
+```{r interaction lines GAM}
+inter_plot <- function(df, factor_var, gam_model, x_var){
+  var <- rlang::sym(factor_var)
+
+plot_dat <- data.frame(df %>% select(-!!var) %>% {.[1:100,]}) %>% 
+    mutate(!!var := rep(quantile(df[[factor_var]], probs = c(0, 0.25, 0.5, 0.75, 1)), times = 20))
+  
+pred <- predict(gam_model, newdata = plot_dat, se.fit = TRUE) 
+plot_dat <- transform(plot_dat,
+                      fitted = pred$fit,
+                      se     = pred$se.fit,
+                      fac   = factor(plot_dat[[factor_var]]))
+
+crit <- qt(0.975, df = df.residual(gam_model))
+
+plot_dat <- transform(plot_dat,
+                      upper = fitted + (crit * se),
+                      lower = fitted - (crit * se))
+
+
+inter_gam_plot <- ggplot(plot_dat, aes_string(x_var, y = "fitted", group = "fac")) +
+    geom_line(aes_string(colour = "fac")) +   # draw trend lines
+    theme_bw() +                        # minimal theme
+    theme(legend.position = "none") +   # no legend
+    labs(y = expression(Temperature ~ (degree*C)), x = NULL) +
+    facet_wrap(~ fac, ncol = 5) +    # facet on month
+    ggtitle(paste("Predictions of temperature vs", x_var, "based on quantile of", factor_var))  
+  
+inter_gam_plot
+}
+
+inter_plot(calcofi_reg, "Salnty", gam_lm_int, "Depthm")
+```
+```{r}
+inter_plot(calcofi_reg, "Depthm", gam_lm_int, "Salnty")
+```
+
+
+
+```{r interaction lines GAM Depth}
+inter_plot(calcofi_reg, "O2ml_L", gam_lm_int, "Salnty")
 ```
