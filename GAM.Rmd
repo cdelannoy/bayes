@@ -1,0 +1,95 @@
+---
+title: "Why and how to use GAM"
+subtitle: "with a focus on interactions"
+author: "presented by Constance"
+output:
+  revealjs::revealjs_presentation
+---
+
+<style type="text/css">
+h1.title {
+  color: DarkBlue;
+}
+h1.subtitle {
+  font-size: 38px;
+  color: DarkBlue;
+}
+h1.author {
+  font-size: 40px
+  color: DarkBlue;
+}
+</style>
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(ggplot2)
+```
+
+
+## Why GAM?
+
+
+* Principle of linear regression: linearity of outcome vs predictor
+
+* Sometimes, that is not the case, so need to transform a predictor
+
+* Ex:
+
+## 
+```{r linear kink ex, echo=FALSE}
+kink_plot <- ggplot(NULL) +
+  geom_line(aes(x = 0:5, y = 0:5))+
+  geom_line(aes(x = 5:10, y = 5:0)) +
+  geom_line(aes(x = 0:5, y = 10:5), linetype = 2) +
+  geom_line(aes(x = 5:10, y = 5:10), linetype = 2) +
+  theme(axis.title.y=element_blank(),
+        axis.title.x = element_blank()) +
+  ggtitle("Example of line to model using splines")
+
+kink_plot
+```
+
+
+## MGCV package
+
+* linear approximation by decomposition (into linear functions with different bases)
+
+* `s()` acts as a factor variable, to be used to smooth unique variables by linear approximation
+
+* `te()` produces a full tensor product smooth (useful for interactions)
+
+* `ti()` produces a tensor product interaction (useful for interactions)
+
+## Tensor productions te() vs ti()
+
+* Used to smooth interaction terms
+
+* Predictors need not be on the same scale
+
+* `te()` incorporates the interaction and main effects: $f(x)+g(z)+h(x,z)$
+
+* `ti()` incorporates only interaction, without main effects: $h(x,z)$
+
+## 2-way interactions
+
+* `y ~ s(x, by = z)` models linear interaction (if effect of $x$ on $z$ is linear)
+
+* `y ~ te(x, z)` models non-linear interaction
+
+* Note that when you use `by`, you are not getting main effects for that variable
+
+## 3-way interactions
+
+* The previous method can be extrapolated to 3-way (or more) interactions with `te()`
+
+* `y ~ te(x, z, by = t)` models non-linear interaction between $x$ and $z$, with linear interaction with $t$
+
+* `y ~ te(x, z, t)` models non-linear interaction between all three
+
+## Sources
+
+* https://stat.ethz.ch/R-manual/R-devel/library/mgcv/html/te.html
+
+* https://stats.stackexchange.com/questions/86766/interactions-in-gam
+
+* https://stats.stackexchange.com/questions/45446/intuition-behind-tensor-product-interactions-in-gams-mgcv-package-in-r 
