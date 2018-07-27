@@ -233,6 +233,94 @@ corrplot(cor(calcofi_reg),
 
 ```
 
+___Heatmaps___
+
+```{r}
+heatmap1 <- ggplot(calcofi_reg, aes(x = Depthm, y = Salnty)) +
+  geom_tile(aes(fill = T_degC)) +
+  ggtitle("Heatmap of Depth vs Salinity")
+
+heatmap1
+```
+```{r}
+heatmap2 <- ggplot(calcofi_reg, aes(x = O2ml_L, y = Salnty)) +
+  geom_tile(aes(fill = T_degC)) +
+  ggtitle("Heatmap of O2 concentration vs Salinity")
+
+heatmap2
+```
+
+```{r}
+heatmap3 <- ggplot(calcofi_reg, aes(x = O2ml_L, y = Depthm)) +
+  geom_tile(aes(fill = T_degC)) +
+  ggtitle("Heatmap of O2 concentration vs Depth")
+
+heatmap3
+```
+
+
+___Data sections___
+
+First, we take a look at the distribution of O2 vs Depth to pick the cut-offs.
+```{r} 
+ggplot(calcofi_reg %>% mutate(graph_color = case_when(Depthm <= 500 ~ "blue", 
+                                                      Depthm > 500 & Depthm < 1500 ~ "green",
+                                                      Depthm >= 1500 ~ "red")), aes(x = Depthm, y = O2ml_L)) +
+  geom_point(aes(color = graph_color)) +
+  ggtitle("Cut-off for values of Depth for next graphs")
+```
+
+We decide to create a cut-off at Depth of 1000m.
+We now show the distribution of O2 vs Depth for each section
+```{r}
+ggplot(calcofi_reg %>% mutate(cut_off = factor(case_when(Depthm <= 500 ~ "depth<=500", 
+                                                      Depthm > 500 & Depthm < 1500 ~ "500<Depth<1500",
+                                                      Depthm >= 1500 ~ "Depth>=1500"))), aes(y = T_degC, x = Salnty)) +
+  geom_point() +
+  facet_grid(.~cut_off) +
+  ggtitle("Temperature vs Salinity for Depth greater or equal to 1000m")
+```
+
+___PCA___
+
+We conduct principal component analysis (PCA) using prcomp on the O2 and Depth variables.
+
+```{r}
+pca <- prcomp(calcofi_reg %>% select(O2ml_L, Depthm), scale. = TRUE)
+biplot(pca, scale=0)
+```
+The principal components loadings are below:
+```{r}
+pca$rotation
+```
+Here is the standard deviation and variance of each component:
+
+```{r}
+pca_st_dev <- pca$sdev
+pca_var <- pca$sdev^2
+```
+* Standard Deviation: `r pca_st_dev`
+* Variance: `r pca_var`
+
+And the proportion of the variance explained by the components:
+```{r}
+prop_varex <- pca_var/sum(pca_var)
+```
+* First component: `r prop_varex[1]`
+* Second component: `r prop_varex[2]`
+
+Based on this result, we select the first component for our model.
+We now plot Salinity vs PCA1.
+**Question: do we need to scale Salinity and Temperature??**
+
+```{r}
+pca_col <- data.frame(PCA1 = pca$x[,1])
+ggplot(bind_cols(calcofi_reg, pca_col), aes(x = PCA1, y = Salnty, color = T_degC)) +
+  geom_point() +
+  ggtitle("Salinity vs PCA1 with Temperature as color gradient") +
+  xlim(-4, 1)
+```
+
 
 ## Modeling {.tabset}
 
@@ -424,19 +512,34 @@ plot(fitted(gam_lm_int), residuals(gam_lm_int), main = "fitted values vs residua
 plot(calcofi_reg$T_degC, residuals(gam_lm_int), main = "observed values for Temperature vs residuals")
 ```
 
+The predictions are in the range we expect, although sub-zero water temperatures seem a bit odd:
+
+```{r}
+summary(gam_lm_int$fitted.values)
+```
+
+
 Now let's pot some interactions!
+High values of depth produce extreme predicted temperatures... we produce plots as-is, and with those extreme values removed.
 
 ```{r interaction lines GAM}
-inter_plot <- function(df, factor_var, gam_model, x_var){
+inter_plot <- function(df, factor_var, gam_model, x_var, extreme = TRUE){
   var <- rlang::sym(factor_var)
   plot_dat <- data.frame(df %>% select(-!!var) %>% {.[1:100,]}) %>% 
-      mutate(!!var := rep(quantile(df[[factor_var]], probs = c(0, 0.25, 0.5, 0.75, 1)), times = 20))
-    
+      mutate(!!var := rep(quantile(df[[factor_var]], probs = c(0, 0.25, 0.5, 0.75, 1)), times = 20)) %>% 
+    select(-T_degC)
+   
   pred <- predict(gam_model, newdata = plot_dat, se.fit = TRUE) 
   plot_dat <- transform(plot_dat,
                         fitted = pred$fit,
                         se     = pred$se.fit,
                         fac   = factor(plot_dat[[factor_var]]))
+  
+  if(extreme == FALSE){
+    plot_dat <- plot_dat %>% 
+      filter(fitted < 50,
+             fitted > -50)
+  }
   
   crit <- qt(0.975, df = df.residual(gam_model))
   
@@ -466,4 +569,37 @@ inter_plot(calcofi_reg, "Depthm", gam_lm_int, "Salnty")
 
 ```{r interaction lines GAM Depth}
 inter_plot(calcofi_reg, "O2ml_L", gam_lm_int, "Salnty")
+```
+
+Here are plots without extreme values
+
+```{r}
+inter_plot(calcofi_reg, "Salnty", gam_lm_int, "Depthm", extreme = FALSE)
+```
+
+```{r}
+inter_plot(calcofi_reg, "Depthm", gam_lm_int, "Salnty", extreme = FALSE)
+```
+
+```{r interaction lines GAM Depth 2}
+inter_plot(calcofi_reg, "O2ml_L", gam_lm_int, "Salnty", extreme = FALSE)
+```
+```{r}
+plots <- pairs(calcofi_reg)
+```
+
+```{r}
+# fit1 <- gam(T_degC ~ te(Depthm, Salnty, O2ml_L), data = calcofi_reg)
+fit1 <- gam(T_degC ~ te(Depthm, Salnty), data = calcofi_reg)
+plot.gam(fit1)
+```
+
+```{r}
+fit2 <- gam(T_degC ~ te(Salnty, O2ml_L), data = calcofi_reg)
+plot(fit2)
+```
+
+```{r}
+fit3 <- gam(T_degC ~ te(Depthm, O2ml_L), data = calcofi_reg)
+plot(fit3)
 ```
