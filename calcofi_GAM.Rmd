@@ -261,25 +261,74 @@ heatmap3
 
 ___Data sections___
 
+```{r create cut-off variable}
+calcofi_reg <- calcofi_reg %>% 
+  mutate(sections = factor(case_when(Depthm <= 250 & O2ml_L >= 6                               ~ 1,
+                                     Depthm <= 20 & O2ml_L < 6 & O2ml_L >= 5.5                 ~ 2,
+                                     Depthm > 20 & Depthm <= 250 & O2ml_L < 6 & O2ml_L >= 5.5  ~ 3,
+                                     Depthm <= 250 & O2ml_L < 5.5 & O2ml_L >= 5                ~ 4,
+                                     Depthm <= 250 & O2ml_L < 5 & O2ml_L >= 4                  ~ 5,
+                                     Depthm <= 250 & O2ml_L < 4 & O2ml_L >= 3                  ~ 6,
+                                     Depthm <= 250 & O2ml_L < 3 & O2ml_L >= 2                  ~ 7,
+                                     Depthm <= 250 & O2ml_L < 2 & O2ml_L >= 1.5                ~ 8,
+                                     Depthm <= 250 & O2ml_L < 1.5                              ~ 9,
+                                     Depthm > 250 & Depthm <= 500 & O2ml_L < 6 & O2ml_L >= 2   ~ 10,
+                                     Depthm > 250 & Depthm <= 500 & O2ml_L < 2 & O2ml_L >= 1.5 ~ 11,
+                                     Depthm > 250 & Depthm <= 500 & O2ml_L < 1.5               ~ 12,
+                                     Depthm > 500 & Depthm < 1500                              ~ 13,
+                                     Depthm >= 1500                                            ~ 14)))
+
+
+```
+
+
 First, we take a look at the distribution of O2 vs Depth to pick the cut-offs.
 ```{r} 
-ggplot(calcofi_reg %>% mutate(graph_color = case_when(Depthm <= 500 ~ "blue", 
-                                                      Depthm > 500 & Depthm < 1500 ~ "green",
-                                                      Depthm >= 1500 ~ "red")), aes(x = Depthm, y = O2ml_L)) +
-  geom_point(aes(color = graph_color)) +
+ggplot(calcofi_reg, aes(x = Depthm, y = O2ml_L)) +
+  geom_point(aes(color = sections)) +
   ggtitle("Cut-off for values of Depth for next graphs")
 ```
 
-We decide to create a cut-off at Depth of 1000m.
-We now show the distribution of O2 vs Depth for each section
+Key for what each section number represents:
+
+| Key | Depthm | O2 concentration|
+|---|---|---|
+| 1  | less than 250m     | greater than 6ml/L|
+| 2  | less than 20m      | btw 5.5 and 6ml/L|
+| 3  | btw 20 and 250m    | btw 5.5 and 6ml/L|
+| 4  | less than 250m     | btw 5 and 5.5ml/L|
+| 5  | less than 250m     | btw 4 and 5ml/L|
+| 6  | less than 250m     | btw 3 and 4 ml/L|
+| 7  | less than 250m     | btw 2 and 3 ml/L|
+| 8  | less than 250m     | btw 1.5 and 2 ml/L|
+| 9  | less than 250m     | less than 1.5ml/L|
+| 10  | btw 250 and 500m  | btw 2 and 6 ml/L|
+| 11 | btw 250 and 500m   | btw 1.5 and 2 ml/L|
+| 12 | btw 250 and 500m   | less than 1.5ml/L|
+| 13 | btw 500 and 1500m  | any |
+| 14 | greater than 1500m | any |
+
+We then check the amount of data in each section
+
 ```{r}
-ggplot(calcofi_reg %>% mutate(cut_off = factor(case_when(Depthm <= 500 ~ "depth<=500", 
-                                                      Depthm > 500 & Depthm < 1500 ~ "500<Depth<1500",
-                                                      Depthm >= 1500 ~ "Depth>=1500"))), aes(y = T_degC, x = Salnty)) +
-  geom_point() +
-  facet_grid(.~cut_off) +
-  ggtitle("Temperature vs Salinity for Depth greater or equal to 1000m")
+N_per_section <- calcofi_reg %>% 
+  group_by(sections) %>% 
+  summarise(sample = n())
+
+knitr::kable(N_per_section, row.names = FALSE)
 ```
+
+
+We decide to create sections of the data based on the above graph.
+We now show the distribution of O2 vs Depth for each section.
+```{r}
+ggplot(calcofi_reg, aes(y = T_degC, x = Salnty)) +
+  geom_point() +
+  facet_wrap(~sections, ncol = 5) +
+  ggtitle("Temperature vs Salinity for various values of O2 concentration and Depth") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
 
 ___PCA___
 
@@ -311,7 +360,6 @@ prop_varex <- pca_var/sum(pca_var)
 
 Based on this result, we select the first component for our model.
 We now plot Salinity vs PCA1.
-**Question: do we need to scale Salinity and Temperature??**
 
 ```{r}
 pca_col <- data.frame(PCA1 = pca$x[,1])
