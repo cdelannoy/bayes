@@ -1,0 +1,226 @@
+---
+title: "CalCOFI kaggle challenge"
+output: 
+  revealjs::revealjs_presentation:
+    theme: moon
+    includes:
+    self_contained: false
+    reveal_plugins: ["notes", "menu"]
+    reveal_options:
+      slideNumber: true
+      progress: true
+      history: true
+      overview: true
+---
+  
+  
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, cache = FALSE)
+
+# Libraries
+library(tidyverse)
+library(ggplot2)
+library(corrplot)
+library(gridExtra)
+library(stargazer)
+library(mgcv)
+library(jtools)
+library(lubridate)
+library(ggmap)
+
+# directories
+calcofi_dir <- "C:/Users/cdelannoy/Documents/Projects/courses/bayes/kaggle/lm_calcofi/"
+input_dir <- file.path(calcofi_dir, "input")
+output_dir <- file.path(calcofi_dir, "output")
+```
+
+```{r loading data and preliminary processing}
+calcofi_raw <- read_csv(file.path(input_dir, "bottle.csv"))
+calcofi_cast<- read_csv(file.path(input_dir, "cast.csv"))
+
+# Getting rid of "quality code" and "precision" variables, irrelevant variables (and replicate variables??) to only keep actual measures
+calcofi_df <- calcofi_raw %>% 
+  select(-ends_with("Aq"),
+         -ends_with("1q"),
+         -ends_with("2q"),
+         -ends_with("3q"),
+         -ends_with("4q"),
+         -ends_with("Ap"),
+         -ends_with("1p"),
+         -ends_with("2p"),
+         -ends_with("3p"),
+         -ends_with("4p"),
+         -ends_with("qual"),
+         -ends_with("prec"),
+         -ends_with("tq"),
+         -ends_with("qua"),
+         -ends_with("qu"),
+         -`DIC Quality Comment`,
+         -R_SAMP,
+         -Cst_Cnt,
+         -Btl_Cnt,
+         -Depth_ID,
+         -Sta_ID,
+         -starts_with("DIC"),
+         -starts_with("TA"),
+         -starts_with("MeanA"),
+         -IncTim,
+         -starts_with("C14A") #,
+         #-R_SALINITY
+         ) %>% 
+ mutate_if(is.character, as.numeric) %>% 
+  filter(R_SALINITY > 5)
+
+```
+
+```{r cast cleaning}
+calcofi_cast_clean <- calcofi_cast %>% 
+  mutate_at(vars(Date), mdy)
+
+```
+
+* 60 years of oceanographic data
+* Question is can we predict temperature based on salinity?
+* Other variables of interest include O2 concentration and depth
+* Data is non-linear and unwieldy
+* Can we incorporate spatial/temporal data to fit a model? If so, how?
+
+
+```{r}
+outcome_na <- sum(is.na(calcofi_df$T_degC))
+calcofi_nona <- calcofi_raw %>% 
+  filter(!is.na(T_degC)) %>% 
+  filter(R_SALINITY > 4.57)
+
+na_table <- calcofi_df %>% 
+  summarise_all(funs(sum(is.na(.))/n())) %>% 
+  gather(variable, sum_na) %>% 
+  filter(sum_na > 0.5)
+
+cols_to_remove <- na_table$variable
+
+
+calcofi_corrtrim <- calcofi_df[, colnames(calcofi_df[,!colnames(calcofi_df) %in% cols_to_remove])] %>% 
+  na.omit()
+
+calcofi_reg <- calcofi_df[, colnames(calcofi_df[,!colnames(calcofi_df) %in% cols_to_remove])] %>%  
+  select(-R_TEMP,
+         -R_Depth,
+         -R_O2,
+         -R_PRES,
+         -R_POTEMP,
+         -R_SIGMA,
+         -R_SVA,
+         -R_DYNHT,
+         -STheta,
+        # -`Oxy_µmol/Kg`,
+         -RecInd,
+         -R_O2,
+         -R_O2Sat,
+         -O2Sat,
+         -R_SALINITY) 
+
+calcofi_reg <- calcofi_reg[, -5] %>% # removing `Oxy_µmol/Kg` column
+  na.omit()
+
+stopifnot(!("Oxy" %in% colnames(calcofi_reg)))
+```
+
+## Temperature vs salinity
+```{r} 
+ggplot(calcofi_reg, aes(y = T_degC, x = Salnty)) +
+  geom_point() +
+  ggtitle("Temperature vs salinity")
+```
+
+## Sections
+```{r create cut-off variable}
+calcofi_reg <- calcofi_reg %>% 
+  mutate(sections = factor(case_when(Depthm <= 250 & O2ml_L >= 6                               ~ 1,
+                                     Depthm <= 20 & O2ml_L < 6 & O2ml_L >= 5.5                 ~ 2,
+                                     Depthm > 20 & Depthm <= 250 & O2ml_L < 6 & O2ml_L >= 5.5  ~ 3,
+                                     Depthm <= 250 & O2ml_L < 5.5 & O2ml_L >= 5                ~ 4,
+                                     Depthm <= 250 & O2ml_L < 5 & O2ml_L >= 4                  ~ 5,
+                                     Depthm <= 250 & O2ml_L < 4 & O2ml_L >= 3                  ~ 6,
+                                     Depthm <= 250 & O2ml_L < 3 & O2ml_L >= 2                  ~ 7,
+                                     Depthm <= 250 & O2ml_L < 2 & O2ml_L >= 1.5                ~ 8,
+                                     Depthm <= 250 & O2ml_L < 1.5                              ~ 9,
+                                     Depthm > 250 & Depthm <= 500 & O2ml_L < 6 & O2ml_L >= 2   ~ 10,
+                                     Depthm > 250 & Depthm <= 500 & O2ml_L < 2 & O2ml_L >= 1.5 ~ 11,
+                                     Depthm > 250 & Depthm <= 500 & O2ml_L < 1.5               ~ 12,
+                                     Depthm > 500 & Depthm < 1500                              ~ 13,
+                                     Depthm >= 1500                                            ~ 14)))
+
+
+```
+
+
+```{r} 
+ggplot(calcofi_reg, aes(x = Depthm, y = O2ml_L)) +
+  geom_point(aes(color = sections)) +
+  ggtitle("Cut-off for values of Depth for next graphs")
+```
+
+
+## Distribution of O2 vs Depth for each section
+
+```{r}
+ggplot(calcofi_reg, aes(y = T_degC, x = Salnty)) +
+  geom_point() +
+  facet_wrap(~sections, ncol = 5) +
+  ggtitle("Temperature vs Salinity for various values of O2 concentration and Depth") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+## Time data
+```{r}
+samples_month <- calcofi_cast_clean %>% 
+  group_by(Month) %>% 
+  summarise(n_samples = n())
+
+ggplot(samples_month, aes(x = Month, y = n_samples)) +
+  geom_line() +
+  ggtitle("Number of samples per month") +
+  scale_x_discrete(limits = as.character(unique(samples_month$Month) %>% order())) +
+  ylab("Number of samples")
+
+```
+
+## Location data
+```{r}
+mapWorld <- ggplot() +
+  borders("world", colour = "gray50", fill = "gray50") +
+  geom_point(data = calcofi_cast_clean, aes(x = Lon_Deg, y = Lat_Deg), colour = "red", size = 3) +
+  ggtitle("Location of water samples")
+
+mapWorld
+```
+
+## Key for what each section number represents
+
+| Key | Depthm | O2 concentration|
+|---|---|---|
+| 1  | less than 250m     | greater than 6ml/L|
+| 2  | less than 20m      | btw 5.5 and 6ml/L|
+| 3  | btw 20 and 250m    | btw 5.5 and 6ml/L|
+| 4  | less than 250m     | btw 5 and 5.5ml/L|
+| 5  | less than 250m     | btw 4 and 5ml/L|
+| 6  | less than 250m     | btw 3 and 4 ml/L|
+| 7  | less than 250m     | btw 2 and 3 ml/L|
+| 8  | less than 250m     | btw 1.5 and 2 ml/L|
+| 9  | less than 250m     | less than 1.5ml/L|
+| 10  | btw 250 and 500m  | btw 2 and 6 ml/L|
+| 11 | btw 250 and 500m   | btw 1.5 and 2 ml/L|
+| 12 | btw 250 and 500m   | less than 1.5ml/L|
+| 13 | btw 500 and 1500m  | any |
+| 14 | greater than 1500m | any |
+
+## Amount of data in each section
+
+```{r}
+N_per_section <- calcofi_reg %>% 
+  group_by(sections) %>% 
+  summarise(sample = n())
+
+knitr::kable(N_per_section, row.names = FALSE)
+```

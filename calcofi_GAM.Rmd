@@ -26,6 +26,8 @@ library(gridExtra)
 library(stargazer)
 library(mgcv)
 library(jtools)
+library(lubridate)
+library(ggmap)
 
 # directories
 calcofi_dir <- "C:/Users/cdelannoy/Documents/Projects/courses/bayes/kaggle/lm_calcofi/"
@@ -35,6 +37,7 @@ output_dir <- file.path(calcofi_dir, "output")
 
 ```{r loading data and preliminary processing}
 calcofi_raw <- read_csv(file.path(input_dir, "bottle.csv"))
+calcofi_cast<- read_csv(file.path(input_dir, "cast.csv"))
 
 # Getting rid of "quality code" and "precision" variables, irrelevant variables (and replicate variables??) to only keep actual measures
 calcofi_df <- calcofi_raw %>% 
@@ -70,6 +73,49 @@ calcofi_df <- calcofi_raw %>%
   filter(R_SALINITY > 5)
 
 ```
+
+```{r cast cleaning}
+calcofi_cast_clean <- calcofi_cast %>% 
+  mutate_at(vars(Date), mdy)
+
+```
+
+```{r samples over time}
+time_data <- calcofi_cast_clean %>% 
+  group_by(Date) %>% 
+  summarise(n_samples = n())
+
+time_plot <- ggplot(time_data, aes(x = Date, y = n_samples)) +
+  geom_line() +
+  ggtitle("number of samples over time")
+
+time_plot
+```
+
+```{r samples per month}
+samples_month <- calcofi_cast_clean %>% 
+  group_by(Month) %>% 
+  summarise(n_samples = n())
+
+month_plot <- ggplot(samples_month, aes(x = Month, y = n_samples)) +
+  geom_line() +
+  ggtitle("Number of samples per month") +
+  scale_x_discrete(limits = as.character(unique(samples_month$Month) %>% order())) +
+  ylab("Number of samples")
+
+month_plot
+```
+
+```{r location of samples}
+mapWorld <- ggplot() +
+  borders("world", colour = "gray50", fill = "gray50") +
+  geom_point(data = calcofi_cast_clean, aes(x = Lon_Deg, y = Lat_Deg), colour = "red", size = 3) +
+  ggtitle("Location of water samples")
+
+mapWorld
+```
+
+
 # {.tabset}
 
 ## Exploration and data cleaning {.tabset}
