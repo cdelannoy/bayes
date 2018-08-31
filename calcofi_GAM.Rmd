@@ -28,6 +28,7 @@ library(mgcv)
 library(jtools)
 library(lubridate)
 library(ggmap)
+library(zoo)
 
 # directories
 calcofi_dir <- "C:/Users/cdelannoy/Documents/Projects/courses/bayes/kaggle/lm_calcofi/"
@@ -76,7 +77,9 @@ calcofi_df <- calcofi_raw %>%
 
 ```{r cast cleaning}
 calcofi_cast_clean <- calcofi_cast %>% 
-  mutate_at(vars(Date), mdy)
+  mutate_at(vars(Date), mdy) %>% 
+  mutate(month_year = paste0(Month, "-", Year)) %>% 
+  mutate_at(vars(month_year), as.yearmon, "%m-%Y")
 
 ```
 
@@ -105,6 +108,20 @@ month_plot <- ggplot(samples_month, aes(x = Month, y = n_samples)) +
 
 month_plot
 ```
+
+```{r}
+samples_ymonth <- calcofi_cast_clean %>% 
+  group_by(month_year) %>% 
+  summarise(n_samples = n())
+
+ymonth_plot <- ggplot(samples_ymonth, aes(x = month_year, y = n_samples)) +
+  geom_line() +
+  ggtitle("Number of samples per month and year") +
+  ylab("Number of samples")
+
+ymonth_plot
+```
+
 
 ```{r location of samples}
 mapWorld <- ggplot() +

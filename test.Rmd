@@ -1,19 +1,10 @@
 ---
-title: "CalCOFI kaggle challenge"
-output: 
-  revealjs::revealjs_presentation:
-    theme: moon
-    includes:
-    self_contained: false
-    reveal_plugins: ["notes", "menu"]
-    reveal_options:
-      slideNumber: true
-      progress: true
-      history: true
-      overview: true
+title: "CalCOFI Kaggle Challenge"
+author: "Constance Delannoy"
+date: "August 29, 2018"
+output: html_document
 ---
-  
-  
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, cache = FALSE)
 
@@ -134,7 +125,6 @@ stopifnot(!("Oxy" %in% colnames(calcofi_reg)))
 ggplot(calcofi_reg, aes(y = T_degC, x = Salnty)) +
   geom_point() +
   ggtitle("Temperature vs salinity")
-
 ```
 
 ## Sections
