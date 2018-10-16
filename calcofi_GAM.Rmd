@@ -83,11 +83,11 @@ calcofi_cast_clean <- calcofi_cast %>%
 
 ```
 
-```{r}
+```{r putting spatial and temporal data together}
 merged_df <- left_join(calcofi_raw, calcofi_cast_clean, by = "Cst_Cnt")
 
 # quantile depth grouping
-plot_data <- merged_df %>% mutate(Depth_bucket = case_when(
+spat_temp_data <- merged_df %>% mutate(Depth_bucket = case_when(
   Depthm == 0 ~ "zero",
   Depthm < 46 & Depthm > 0 ~ "Q1",
   Depthm < 125 & Depthm >= 46 ~ "Q2",
@@ -96,19 +96,31 @@ plot_data <- merged_df %>% mutate(Depth_bucket = case_when(
   Depthm >= 300 ~ "max", 
   TRUE ~ NA_character_)
   ) %>%
-  mutate_at(vars(Depth_bucket), as.factor)
+  mutate_at(vars(Depth_bucket), function(x) {factor(x, levels = c("zero", "Q1", "Q2", "Q3", "Q4", "max"), ordered = TRUE)}) %>%
+  mutate_at(vars(Month), function(x) {factor(x, levels =  as.character(seq(1,12,1)), ordered = TRUE)}) %>% 
+  mutate(decade = case_when(Year < 1960 ~ "50s",
+                            Year >= 1960 & Year < 1970 ~ "60s",
+                            Year >= 1970 & Year < 1980 ~ "70s",
+                            Year >= 1980 & Year < 1990 ~ "80s",
+                            Year >= 1990 & Year < 2000 ~ "90s",
+                            Year >= 2000 & Year < 2010 ~ "00s",
+                            Year >= 2010 ~ "10s")) %>% 
+  mutate_at(vars(decade), factor, levels = c("50s", "60s", "70s", "80s", "90s", "00s", "10s"), ordered = TRUE)
+```
+
+# {.tabset}
+
+## Exploration and data cleaning {.tabset}
+
+### Spatial-temporal analysis
 
 
-temp_date_p <- ggplot(plot_data,
+```{r}
+temp_date_p <- ggplot(spat_temp_data,
                       aes(x = Month, y = T_degC, group = Depth_bucket, color = Depth_bucket)) +
               geom_point()
 temp_date_p
 ```
-
-```{r}
-
-```
-
 
 
 ```{r samples over time}
@@ -151,7 +163,8 @@ ymonth_plot
 ```
 
 
-```{r location of samples}
+```{r location of samples over whole world, evaluate = FALSE}
+# too large of a scale
 mapWorld <- ggplot() +
   borders("world", colour = "gray50", fill = "gray50") +
   geom_point(data = calcofi_cast_clean, aes(x = Lon_Deg, y = Lat_Deg), colour = "red", size = 3) +
@@ -159,40 +172,54 @@ mapWorld <- ggplot() +
 
 mapWorld
 ```
-```{r}
 
-
-westcoastmap <- ggplot() +
+```{r location of samples on west coast}
+# too large of a scale
+mapWestcoast <- ggplot() +
   borders("world", colour = "gray50", fill = "gray50") +
-  geom_point(data = plot_data %>% filter(Depth_bucket == "zero",
-                                         Month == 1),
-             aes(x = Lon_Deg, y = Lat_Deg, colour = T_degC), size = 2) +
-  ggtitle("Location of water samples") +
-  scale_x_continuous( limits = c( min(plot_data$Lon_Deg) - 1, max(plot_data$Lon_Deg) + 1 ) , expand = c( 0, 0) ) + 
-  scale_y_continuous( limits = c( min(plot_data$Lat_Deg) - 1, max(plot_data$Lat_Deg) +1 ) , expand = c( 0 , 0 ) ) 
+  geom_point(data = calcofi_cast_clean, aes(x = Lon_Deg, y = Lat_Deg), colour = "blue", size = 3) +
+  scale_x_continuous( limits = c( min(spat_temp_data$Lon_Deg) - 1, max(spat_temp_data$Lon_Deg) + 1) , expand = c(0, 0)) + 
+  scale_y_continuous( limits = c( min(spat_temp_data$Lat_Deg) - 1, max(spat_temp_data$Lat_Deg) + 1) , expand = c(0, 0 )) +
+  ggtitle("Location of water samples")
 
-westcoastmap
-
-unique(merged_df$Month)
+mapWestcoast
 ```
 
+```{r temp by location, month and depth}
+ggplot() +
+  borders("world", colour = "gray50", fill = "gray50") +
+  geom_point(data = spat_temp_data,
+             aes(x = Lon_Deg, y = Lat_Deg, colour = T_degC), size = 2) +
+  ggtitle("Temperature of water samples based on month of the year and depth") +
+  scale_x_continuous(limits = c(min(spat_temp_data$Lon_Deg) - 1, max(spat_temp_data$Lon_Deg) + 1) , expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(min(spat_temp_data$Lat_Deg) - 1, max(spat_temp_data$Lat_Deg) + 1) , expand = c(0, 0)) +
+  facet_grid(Depth_bucket ~ Month) +
+  scale_colour_gradient(low = "#00FFFF", high = "#FF0000") + 
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),
+        axis.ticks.y = element_blank(), axis.text.y = element_blank(), axis.title.y = element_blank())
+```
 
-# {.tabset}
+```{r temp by location, decade and depth}
+mean_temp_per_decade <- spat_temp_data %>% 
+  group_by(decade, Lat_Deg, Lon_Deg, Depth_bucket) %>% 
+  summarise(temp = mean(T_degC, na.rm = T))
 
-## Exploration and data cleaning {.tabset}
+ggplot() +
+  borders("world", colour = "gray50", fill = "gray50") +
+  geom_point(data = mean_temp_per_decade,
+             aes(x = Lon_Deg, y = Lat_Deg, colour = temp), size = 2) +
+  ggtitle("Mean temperature of water samples based on decade and depth") +
+  scale_x_continuous(limits = c(min(mean_temp_per_decade$Lon_Deg) - 1, max(mean_temp_per_decade$Lon_Deg) + 1) , expand = c(0, 0)) + 
+  scale_y_continuous(limits = c(min(mean_temp_per_decade$Lat_Deg) - 1, max(mean_temp_per_decade$Lat_Deg) + 1) , expand = c(0, 0)) +
+  facet_grid(Depth_bucket ~ decade) +
+  scale_colour_gradient(low = "#00FFFF", high = "#FF0000") + 
+  theme(axis.text.x = element_blank(), axis.title.x = element_blank(),
+        axis.ticks.y = element_blank(), axis.text.y = element_blank(), axis.title.y = element_blank())
+```
 
 
 ### Outcome variable
 
-<!-- The outcome variable (temperature in degress Celsius) looks reasonably normal, so we do not feel the need to transform it. -->
-
-<!-- ```{r exploration} -->
-<!-- outcome_plot <- ggplot(calcofi_raw, aes(T_degC)) + -->
-<!--   geom_histogram() + -->
-<!--   ggtitle("distribution of outcome variable (temperature in C)") -->
-<!-- outcome_plot -->
-
-<!-- ``` -->
 
 ```{r}
 outcome_na <- sum(is.na(calcofi_df$T_degC))
@@ -716,6 +743,7 @@ inter_plot <- function(df, factor_var, gam_model, x_var, extreme = TRUE){
 
 inter_plot(calcofi_reg, "Salnty", gam_lm_int, "Depthm")
 ```
+
 ```{r}
 inter_plot(calcofi_reg, "Depthm", gam_lm_int, "Salnty")
 ```
@@ -739,6 +767,7 @@ inter_plot(calcofi_reg, "Depthm", gam_lm_int, "Salnty", extreme = FALSE)
 ```{r interaction lines GAM Depth 2}
 inter_plot(calcofi_reg, "O2ml_L", gam_lm_int, "Salnty", extreme = FALSE)
 ```
+
 ```{r}
 plots <- pairs(calcofi_reg)
 ```
@@ -758,3 +787,10 @@ plot(fit2)
 fit3 <- gam(T_degC ~ te(Depthm, O2ml_L), data = calcofi_reg)
 plot(fit3)
 ```
+
+### Model with BART
+
+```{r bart results, child = "calcofi_bart.Rmd"}
+
+```
+

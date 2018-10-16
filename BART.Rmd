@@ -1,0 +1,152 @@
+---
+title:
+output: 
+  revealjs::revealjs_presentation:
+    theme: moon
+    mathjax: local
+    includes:
+    self_contained: false
+    reveal_plugins: ["notes", "menu"]
+    reveal_options:
+      slideNumber: true
+      progress: true
+      history: true
+      overview: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(png)
+library(grid)
+```
+
+## Bayesian Additive Regression Trees (BART)
+```{r}
+img1 <- readPNG("C:/Users/cdelannoy/Documents/Projects/courses/BART/unicorn.png")
+ grid.raster(img1)
+```
+
+
+# Theory
+
+## Problem
+
+* Goal is to estimate causal effects from observational studies
+* Issues to take into consideration include:
+    * outcome is not linearily related to covariates
+    * treatment effect is non-linearily related to covariates
+    * large number of covariates
+    *	lack of “overlap”, i.e. distribution of covariates is different across treatment and control group, meaning that there is not an empirical counterfactual for each data point
+    * researcher interference  “tinkering” in the model (i.e. manual choice of interactions, transformations, etc.)
+
+## 
+
+```{r}
+img2 <- readPNG("C:/Users/cdelannoy/Documents/Projects/courses/BART/Figure1.png")
+ grid.raster(img2)
+```
+
+## How BART works #1: overview
+
+* estimates model for outcome $Y = f(z,x) + \epsilon$, with $\epsilon$ iid $N(0, \sigma ^2)$ and errors are assumed additive
+* estimation for $f$ comes in two pieces:
+    * sum-of-tree model:
+        * decision rules that leads to a bottom node
+        * bottom node has parameter $\mu$ representing the mean response of the subgroup of observations that fall in that node
+        * after taking the fit from the first tree, the next tree is fit to residuals
+    * regularization prior:
+        * holds back the fit of each tree to prevent overfitting
+
+##
+```{r}
+img2b <- readPNG("C:/Users/cdelannoy/Documents/Projects/courses/BART/Figure2.png")
+ grid.raster(img2b)
+```
+
+## How BART works #2: Putting the B in BART
+
+* parameters are ($T_j, M_j$) the tree model with T the decision rules and M the mean response, and $\sigma$ is the residual standard deviation $\epsilon \sim N(0, \sigma ^2)$
+* the prior has three components:
+    * a prior preference for trees $T_j$ with only a few bottom nodes
+    * a prior which shrinks $M_j$, the mean response for observations in the node, toward zero
+    * a prior which suggests $\sigma$ is smaller than that given by least squares \*
+* the posteriors for $\sigma$ and ($T_j, M_j)$, are computed using MCMC although those last two parameters are not identified
+
+\* needs further clarification
+
+## Advantages of BART
+* quantification of uncertainty
+* default priors
+* no "tinkering" required
+    * no need to explicitly add interaction terms or transformations
+    *	no need to manually prune down a set of potential confounders 
+* stable, fast MCMC (less than 90 sec on 1000 observations), no cross-validation required
+* handles very large number of predictors
+* performs well in both linear and nonlinear models
+    * compared to linear regression and propensity score matching
+
+## Limitations
+* regularization prior limits increase in uncertainty in cases with limited empirical counterfactuals, potentially leading to poor predictions \*
+    * more on this in Hill and Su 2010
+* may be limited in cases with high levels of interaction (Hill tested it up to three-way interactions)
+    * Li, Sudarsanam, and Frey (2006) showed that higher-order interactions are usually small in magnitude, so this pitfall may not be that limiting in practice
+
+\* needs further clarification
+
+## Areas for clarification
+* why shrink $\sigma$ toward zero?
+* how to look inside the black box at heterogeneous treatment effects?
+
+# Practice
+
+## Practical considerations
+* Hill used package BayesTree by Chipman, George, and McCulloch (originators of BART)
+* other package is bartMachine by Kapelner and Bleich (attempt to remedy some pitfalls of BayesTree)
+
+## Summary of differences between packages (by bartMachine authors)
+```{r}
+img3 <- readPNG("C:/Users/cdelannoy/Documents/Projects/courses/BART/pck_compare.png")
+ grid.raster(img3)
+```
+
+## Advantages of bartMachine
+
+* prediction (BayesTree has no predict function)
+* visualization 
+    * plotting functions for posterior credible and predictive intervals
+    * plotting functions to inspect convergence of MCMC chain
+* faster analysis than BayesTree (parallelized computing)
+* save trees and models in memory
+* ability to include prior information for covariates
+
+## Advantages of BayesTree  
+
+* ability to incorporate function into larger model through dbarts
+* one more type of tree 
+
+## Comparison of package performance
+```{r}
+img4 <- readPNG("C:/Users/cdelannoy/Documents/Projects/courses/BART/pck_compare2.png")
+ grid.raster(img4)
+```
+
+# ~~The end~~ The beginning
+
+## Key points
+* BART combines the flexibility of ML methods and the valid uncertainty quantification of Bayesian inference
+* We need to better understand the limitations and constraints of the method
+    * why shrink $\sigma$ toward zero?
+    * what is the effect of limited empirical counterfactuals on predictions
+        * (Hahn, Murray and Carvalho, 2018) -- draft
+    * how to look inside the black box at heterogeneous treatment effects?
+        * (Hill and Su, 2010)
+* We will report in a few months once we have tried it on CPC+!
+
+## References
+
+* Hill, Jennifer. "Bayesian Nonparametric Modeling for Causal Inference." JCGS 20.1 (2011): 217-240. https://www.researchgate.net/profile/Jennifer_Hill3/publication/236588890_Bayesian_Nonparametric_Modeling_for_Causal_Inference/links/0deec5187f94192f12000000.pdf 
+* Li, Xiang, Nandan Sudarsanam, and Daniel D. Frey. "Regularities in data from factorial experiments." Complexity 11.5 (2006): 32-45. https://onlinelibrary.wiley.com/doi/full/10.1002/cplx.20123
+* Hill, Jennifer, and Su Yu-Sung. "Assessing Lack of Common Support in Causal Inference Using Bayesian Nonparametrics." Annals of Applied Statistics 7.3 (2013) 1386-1420. https://arxiv.org/pdf/1311.7244.pdf 
+* Chipman, Hugh, Edward George, and Robert McCulloch. "BART: Bayesian Additive Regression Trees." Annals of Applied Statistics 4.1 (2010): 266-298. https://projecteuclid.org/download/pdfview_1/euclid.aoas/1273584455 
+* Chipman, Hugh, Edward George, and Robert McCulloch. "BART: Bayesian Additive Regression Trees." (2008). http://www-stat.wharton.upenn.edu/~edgeorge/Research_papers/BART%20June%2008.pdf 
+* Hahn, Richard, Jared Murray and Carlos Carvalho. "Bayesian Regression Tree Model for Causal Inference." DRAFT (2018)

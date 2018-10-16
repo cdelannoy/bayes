@@ -1,0 +1,58 @@
+<!-- # Purpose: training on logistic regression using CalCOFI dataset and prompt from kagle -->
+<!-- # Author: Constance -->
+<!-- # Date started: 4/17/2018 -->
+
+
+```{r setup bart, include=FALSE}
+# Libraries
+library(dbarts)
+
+```
+
+
+```{r}
+bm_data <- calcofi_raw %>%  
+  select(Depthm,
+         T_degC,
+         Salnty,
+         O2ml_L,
+         Cst_Cnt) %>% 
+  mutate_at(vars(O2ml_L), as.numeric) %>% 
+  left_join(calcofi_cast_clean, by = "Cst_Cnt") %>% 
+  na.omit()
+
+# bm_data_sample <- bm_data[sample(1:nrow(bm_data), 1000,
+   	# replace=FALSE),]
+
+bm_x = bm_data %>%
+  select(-T_degC) %>%
+  as.data.frame()
+
+bm_y = bm_data[["T_degC"]]
+
+# bt_fit    = bart(bm_x, bm_y, ntree = 200, ndpost = 200, nskip = 200)
+
+bm_fit <- bart(bm_x, bm_y)
+```
+
+```{r}
+salnty_plot_bart <- ggplot(data = bm_data, aes(x = Salnty)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = bm_fit$yhat.train.mean), color = "lightblue", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Salnty")
+
+depthm_plot_bart <- ggplot(data = bm_data, aes(x = Depthm)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = bm_fit$yhat.train.mean), color = "lightpink", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Depth")
+
+o2_plot_bart <- ggplot(data = bm_data, aes(x = O2ml_L)) +
+  geom_point(aes(y = T_degC)) +
+  geom_line(aes(y = bm_fit$yhat.train.mean), color = "lightgreen", alpha = 0.8) +
+  ggtitle("comparison of predicted values of Temperature and actual values of \n temperature vs Depth")
+
+grid.arrange(salnty_plot_bart, depthm_plot_bart, o2_plot_bart, ncol = 3)
+```
+
+
+

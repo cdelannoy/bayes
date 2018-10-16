@@ -1,0 +1,179 @@
+---
+title:
+output: 
+  revealjs::revealjs_presentation:
+    theme: moon
+    mathjax: local
+    includes:
+    self_contained: false
+    reveal_plugins: ["notes", "menu"]
+    reveal_options:
+      slideNumber: true
+      progress: true
+      history: true
+      overview: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(bartMachine)
+library(BayesTree)
+library(tidyverse)
+library(rpart)
+```
+
+```{r setting up data}
+# Set-up
+data("automobile", package = "bartMachine")
+automobile <- na.omit(automobile)
+y <- automobile$log_price
+X <- automobile
+X$log_price <- NULL
+```
+
+## Agenda
+
+* Comparison of BayesTree and bartMachine and some cool graphs
+* Discussion related to ethical considerations
+
+# Package comparions: BayesTree vs bartMachine
+
+## Set-up
+
+* used dataset from bartMachine package introduction
+* not causal inference
+
+## Time running
+
+```{r include = FALSE}
+# bartMachine
+bm_start.time <- Sys.time()
+bart_machine <- bartMachine(X, y, num_trees = 200)
+bm_end.time <- Sys.time()
+bm_time.taken <- bm_end.time - bm_start.time
+
+# bayesTree
+bt_start.time <- Sys.time()
+bayes_tree <- bart(X, y, ntree = 200, ndpost = 1000, nskip = 250)
+bt_end.time <- Sys.time()
+bt_time.taken <- bt_end.time - bt_start.time
+```
+
+```{r}
+# Plotting time difference between both models
+ggplot(data = NULL) +
+  geom_line(aes(x = 0:bm_time.taken, y = 2), cex = 2, color = "red") +
+  geom_line(aes(x = 0:bt_time.taken, y = 1), cex = 2, color = "blue") +
+  scale_y_discrete(name = "", limits = c(0, 1, 2, 3), labels = c("1" = "bayesTree", "2" = "bartMachine")) +
+  scale_x_continuous(name = "Running time of program (s)") +
+  ggtitle("Comparison of running time of two packages \n (200 trees, 1000 draws, 250 burn-in)")
+```
+
+## Results: estimates
+```{r}
+# Plotting predicted vs actual for both models
+
+bayestree_predict <- data.frame(yhat = bayes_tree$yhat.train.mean, y = bayes_tree$y) %>% 
+  mutate(Package = "BayesTree")
+
+bartMachine_predict <- data.frame(yhat = bart_machine$y_hat_train, y= bart_machine$y) %>% 
+  mutate(Package = "bartMachine")
+
+predict_compare <- bind_rows(bayestree_predict, bartMachine_predict) %>% 
+  mutate_at(vars(Package), as.factor)
+  
+ggplot(data = predict_compare, aes(y = yhat, x = y, color = Package)) +
+  geom_point() +
+  geom_smooth(se = FALSE, method = "loess") +
+  geom_abline() +
+  ylab("Fitted values") +
+  xlab("Actual values") +
+  ggtitle("Fitted vs Actual values for BayesTree and bartMachine")
+```
+
+
+## Results: statistics
+```{r}
+# R-squared for both models
+sse_bt <- sum((bayes_tree$y - bayes_tree$yhat.train.mean)^2)
+sst_bt <- sum((bayes_tree$y - mean(bayes_tree$y))^2)
+r_sq_bt <- 1 - sse_bt/sst_bt
+
+sse_bm <- sum((bart_machine$y - bart_machine$y_hat_train)^2)
+sst_bm <- sum((bart_machine$y - mean(bart_machine$y))^2)
+r_sq_bm <- 1 - sse_bm/sst_bm
+```
+
+<table>
+<colgroup>
+</colgroup>
+<thead>
+<tr class="header">
+<th>BayesTree </th>
+<th>bartMachine</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>`r r_sq_bt`</td>
+<td>`r r_sq_bm`</td>
+</tr>
+</tbody>
+</table>
+
+
+## Results: posterior regression trees
+
+```{r}
+# Building regression tree to examine posterior distribution
+par(mfrow = c(1,2))
+automobile_bt <- data.frame(automobile, yhat = bayes_tree$yhat.train.mean) %>% 
+  select(-log_price)
+bt_tree_fit <- rpart(yhat ~ ., data = automobile_bt)
+par(mar = rep(0.2, 4))
+plot(bt_tree_fit, uniform = TRUE, margin = 0.1, main = "Tree from BayesTree model")
+text(bt_tree_fit, all = FALSE, use.n = TRUE)
+
+automobile_bm <- data.frame(automobile, yhat = bart_machine$y_hat_train) %>% 
+  select(-log_price)
+bm_tree_fit <- rpart(yhat ~ ., data = automobile_bm)
+par(mar = rep(0.2, 4))
+plot(bm_tree_fit, uniform = TRUE, margin = 0.1, main = "Tree from bartMachine model")
+text(bm_tree_fit, all = FALSE, use.n = TRUE)
+```
+
+## Next steps
+
+* try to implement BCF?
+    * How to incorporate propensity scores?
+
+# Ethical considerations
+
+## Overview of Shira's paper: choices
+
+* population
+* decision space
+* goal
+* outcome
+* assumptions
+* measurement
+* modeling
+
+## Overview of Shira's paper: fairness metrics
+
+* accuracy $P[D=Y|A=a] = P[D=Y|A=a']$ with D predicted outcome, Y actual outcome, A the group selection (a advantaged, a' disadvantaged)
+* equal decision across groups (do not consider outcome $y$) $impact \perp A$
+* individual fairness 
+
+## Application of ethical guidelines through deon
+
+* checklist [here](http://tfsgit.mathematica.net:8080/tfs/Projects/CPCPlus/_git/BayesianImpact?_a=contents&path=%2FETHICS.rmd&version=GBmaster)
+
+## References
+
+* Hill, Jennifer. "Bayesian Nonparametric Modeling for Causal Inference." JCGS 20.1 (2011): 217-240. https://www.researchgate.net/profile/Jennifer_Hill3/publication/236588890_Bayesian_Nonparametric_Modeling_for_Causal_Inference/links/0deec5187f94192f12000000.pdf 
+* Li, Xiang, Nandan Sudarsanam, and Daniel D. Frey. "Regularities in data from factorial experiments." Complexity 11.5 (2006): 32-45. https://onlinelibrary.wiley.com/doi/full/10.1002/cplx.20123
+* Hill, Jennifer, and Su Yu-Sung. "Assessing Lack of Common Support in Causal Inference Using Bayesian Nonparametrics." Annals of Applied Statistics 7.3 (2013) 1386-1420. https://arxiv.org/pdf/1311.7244.pdf 
+* Chipman, Hugh, Edward George, and Robert McCulloch. "BART: Bayesian Additive Regression Trees." Annals of Applied Statistics 4.1 (2010): 266-298. https://projecteuclid.org/download/pdfview_1/euclid.aoas/1273584455 
+* Chipman, Hugh, Edward George, and Robert McCulloch. "BART: Bayesian Additive Regression Trees." (2008). http://www-stat.wharton.upenn.edu/~edgeorge/Research_papers/BART%20June%2008.pdf 
+* Hahn, Richard, Jared Murray and Carlos Carvalho. "Bayesian Regression Tree Model for Causal Inference." DRAFT (2018)

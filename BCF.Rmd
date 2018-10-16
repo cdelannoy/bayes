@@ -1,0 +1,159 @@
+---
+title:
+output: 
+  revealjs::revealjs_presentation:
+    theme: moon
+    mathjax: local
+    includes:
+    self_contained: false
+    reveal_plugins: ["notes", "menu"]
+    reveal_options:
+      slideNumber: true
+      progress: true
+      history: true
+      overview: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(png)
+library(grid)
+```
+
+## Follow-up on Bayesian Additive Regression Trees (BART)
+
+# Review of Hahn et al, 2015 on Bayesian Causal Forest model (BCF)
+
+## Problem statement
+
+* Goal is to estimate causal effects from observational studies
+* Main issue is bias in causal conclusions from naively regularized nonlinear regression (underfitting) leads to high estimation error of target parameter
+    * especially true in flexible models that allow for heterogenous effects (like BART) (1)
+    * the degree of bias is not under the analyst's control (8)
+    * this can happen even when all the confounders are measured and the parametric model is correctly specified (8)
+    * direct BART prior on $f$ means no explicit control over how $f$ varies in Z, and therefore no control over discovery of heterogeneous effect (14)
+          
+
+## Problem statement cont'd
+
+* Bias is introduced through two main concepts:
+    * regularization-induced confounding (RIC)
+        * with finite samples, many functions in the support of the prior may yield approx. equivalent likelihood evaluations, but imply substantially different treatment effects (6)
+    * targeted selection
+        * treatment is assigned based on outcome prediction (ie depends on set of covariates) (8)
+        * no ignorability
+        * leads to RIC (9)
+        * implies relationship between propensity score and expected outcome without treatment (8)
+    
+## What is Bayesian causal forests (BCF)?
+
+* $f(x_i, z_i) = \mu (x_i, \hat{\pi}_i) + \tau (x_i) z_i$ with:
+    * x covariates, z treatment indicator
+    * \hat{\pi} is estimate of propensity score
+    * \mu is expected potential outcome (with BART prior)
+    * \tau is expected treatment effect (with BART prior)
+* breaks up covariantes from treatment effect
+
+## Prior definitions
+
+* prior on $\mu$ is default BART prior with half-Cauchy prior over the scale of the leaf parameters with prior median equal to twice the marginal sd of Y (16)
+* prior on $\tau$ is default BART prior with half Normal prior, pegging the prior median to the marginal sd of Y. Also shrink effect toward homogeneity:
+    * use fewer trees 
+    * depth penalty $\beta = 3$ 
+    * splitting probability $\eta = 0.25$
+
+## Main take-aways
+
+* main concern is ignorability and confoundedness in causal inference
+* propensity score is a way to capture confoundedness and yields prior that can adapt to complex patterns of confounding (27)
+* still need full vector of covariates because want to identify heterogeneous effects and not preclude dimension reduction on the outset (plus, allows correction if propensity score is mispecified) (27)
+* splitting control variables and treatment effect provides more flexible modeling of heterogeneous effects (2)
+
+## Items for clarification
+
+* problems we are trying to solve (bias, ignorability, etc.)
+* discussion of bias (7)
+* prior specification (14)
+* model comparison in the paper (optional - section 6)
+
+# Review of Hill and Su, 2013 on how handle lack of common support
+
+## Problems
+
+* In context of causal inference, need to identify units that lack common support
+* Current methods identify units over the set of all covariates, even though some of them may be irrelevant (common support vs common causal support, 7) 
+* BART extrapolates over areas of support where there may not be empirical counterfactuals, leading to biased inferences (4)
+
+## How to use BART to discard information
+
+* use BART output to make a rule for deciding which units lack sufficient counterfactual evidence (8)
+* Options for rules include:
+    * Option 1: discard units whose counterfactual sd exceeds maximum sd under the observed treatment condition across all treated units (1 sd rule)
+    * Option 2: squared ratio of posterior sd for each observation to counterfactual posterior sd with a p-value less than 0.10 (using $\xi^2$ distribution) ($\alpha$ = 0.10 rule)
+    * Option 3: same as above but with p-value less than 0.05 ($\alpha$ = 0.05 rule)
+    * Option 4: use a classification strategy such as regression tree to identify neighborhoods that lack overlap, and make decision based on expert knowledge of what to do with observations in those neighborhoods (exploratory approach)
+    
+## Limitations
+
+* Option 1 seems too sharp since even chance disturbances might put units beyond the threshold (8)
+* Options 2 and 3 assume homogeneity of variance and will be less stable, and more prone to rejection for units that have particularly large amounts of information than the first rule (9)
+* Option 4 seems to be counter to honesty principles in research, but because of nature of BART, this is not a problem as long as algorithm is only run once at the default settings to limit researcher "interference" (9)
+
+## BART approach vs propensity scores
+
+<table>
+<colgroup>
+</colgroup>
+<thead>
+<tr class="header">
+<th>Propensity score </th>
+<th>BART</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Requires correct specification of model</td>
+<td>Flexibility of BART means good fit is likely</td>
+</tr>
+<tr class="even">
+<td>Ignores information about common support embedded in response variable</td>
+<td>Standard deviation of posterior distribution picks up on this</td>
+</tr>
+<tr class="odd">
+<td>More honest because ignores outcome when creating score </td>
+<td>Can achieve honesty by sticking to fitting one model and using prescribed rule</td>
+</tr>
+<tr class="even">
+<td>More conservative in deciding which observations to drop</td>
+<td>Keeps more observations under each of the 3 rules above than matching</td>
+</tr>
+</tbody>
+</table>
+
+## Summary
+
+* Hill advocates the following steps for causal inference:
+    * pick discard rule for BART
+    * fit BART model once with default parameters
+    * use rule to identify areas of poor support and discard observations as stipulated by the rule
+    * fit new BART model for causal inference
+
+
+## Items for clarification
+
+* "methods that discard units are estimating different estimands than those that do not, therefore, direct comparisons between the BART and propensity score estimates are not particularly informative" (31)
+    * how are the estimands different?
+* how to profile region with lack of overlap in practice (Section 4.6) (16)
+     * need to dive into trees?
+     * use predict function?
+* go over one example (optional - Section 5) (20)
+
+
+## References
+
+* Hill, Jennifer. "Bayesian Nonparametric Modeling for Causal Inference." JCGS 20.1 (2011): 217-240. https://www.researchgate.net/profile/Jennifer_Hill3/publication/236588890_Bayesian_Nonparametric_Modeling_for_Causal_Inference/links/0deec5187f94192f12000000.pdf 
+* Li, Xiang, Nandan Sudarsanam, and Daniel D. Frey. "Regularities in data from factorial experiments." Complexity 11.5 (2006): 32-45. https://onlinelibrary.wiley.com/doi/full/10.1002/cplx.20123
+* Hill, Jennifer, and Su Yu-Sung. "Assessing Lack of Common Support in Causal Inference Using Bayesian Nonparametrics." Annals of Applied Statistics 7.3 (2013) 1386-1420. https://arxiv.org/pdf/1311.7244.pdf 
+* Chipman, Hugh, Edward George, and Robert McCulloch. "BART: Bayesian Additive Regression Trees." Annals of Applied Statistics 4.1 (2010): 266-298. https://projecteuclid.org/download/pdfview_1/euclid.aoas/1273584455 
+* Chipman, Hugh, Edward George, and Robert McCulloch. "BART: Bayesian Additive Regression Trees." (2008). http://www-stat.wharton.upenn.edu/~edgeorge/Research_papers/BART%20June%2008.pdf 
+* Hahn, Richard, Jared Murray and Carlos Carvalho. "Bayesian Regression Tree Model for Causal Inference." DRAFT (2018)
